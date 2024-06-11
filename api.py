@@ -1,85 +1,113 @@
-"""A Steamship package for prompt-based text generation.
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from typing import List
+import secrets
+import requests
+import uvicorn
+from datetime import datetime, timedelta
+import jwt
 
-This package provides a simple template for building prompt-based applications.
+app = FastAPI()
 
-To run it:
-1. Get a Steamship API Key (Visit: https://steamship.com/account/api). If you do not
-   already have a Steamship account, you will need to create one.
-2. Copy this key to a Replit Secret named STEAMSHIP_API_KEY.
-3. Click the green `Run` button at the top of the window (or open a Shell and type `python3 api.py`).
+# Security schemes
+security = HTTPBasic()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-More information about this template is provided in README.md.
-
-To learn more about advanced uses of Steamship, read our docs at: https://docs.steamship.com/packages/using.html.
-"""
-import inspect
-from termcolor import colored
-
-from steamship import check_environment, RuntimeEnvironments, Steamship
-from steamship.invocable import post, PackageService
-
-
-class PromptPackage(PackageService):
-  # Modify this to customize behavior to match your needs.
-  PROMPT = "Say an unusual greeting to {name}. Compliment them on their {trait}."
-
-  # When this package is deployed, this annotation tells Steamship
-  # to expose an endpoint that accepts HTTP POST requests for the
-  # `/generate` request path.
-  # See README.md for more information about deployment.
-  @post("generate")
-  def generate(self, name: str, trait: str) -> str:
-    """Generate text from prompt parameters."""
-    llm_config = {
-      # Controls length of generated output.
-      "max_words": 30,
-      # Controls randomness of output (range: 0.0-1.0).
-      "temperature": 0.8
+# Mock user data
+users_db = {
+    "user1": {
+        "username": "user1",
+        "password": "password1"
     }
-    prompt_args = {"name": name, "trait": trait}
+}
 
-    llm = self.client.use_plugin("gpt-3", config=llm_config)
-    return llm.generate(self.PROMPT, prompt_args)
+SECRET_KEY = "mysecretkey"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Define the data models
+class InvoiceItem(BaseModel):
+    item_id: str
+    quantity: int
+    price: float
 
-# Try it out locally by running this file!
+class Invoice(BaseModel):
+    invoice_id: str
+    customer_id: str
+    items: List[InvoiceItem]
+    total_amount: float
+
+class StockMovement(BaseModel):
+    stock_id: str
+    item_id: str
+    quantity: int
+    movement_type: str  # e.g., 'in', 'out'
+    timestamp: str
+
+# Mock external endpoint (for demonstration purposes)
+EXTERNAL_ENDPOINT = "http://external-endpoint.example.com/"
+
+def verify_basic_auth(credentials: HTTPBasicCredentials):
+    correct_username = secrets.compare_digest(credentials.username, "user1")
+    correct_password = secrets.compare_digest(credentials.password, users_db["user1"]["password"])
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+@app.post("/token", response_model=dict)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = users_db.get(form_data.username)
+    if not user or not secrets.compare_digest(user["password"], form_data.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": form_data.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+def post_to_external_endpoint(data: dict, endpoint: str, token: str):
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = requests.post(endpoint, json=data, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/stream/invoice/", dependencies=[Depends(security)])
+async def stream_invoice(invoice: Invoice, token: str = Depends(oauth2_scheme)):
+    post_to_external_endpoint(invoice.dict(), EXTERNAL_ENDPOINT + "invoices/", token)
+    return {"status": "Invoice data streamed successfully"}
+
+@app.post("/stream/stock-movement/", dependencies=[Depends(security)])
+async def stream_stock_movement(stock_movement: StockMovement, token: str = Depends(oauth2_scheme)):
+    post_to_external_endpoint(stock_movement.dict(), EXTERNAL_ENDPOINT + "stock-movements/", token)
+    return {"status": "Stock movement data streamed successfully"}
+
+@app.post("/replicate/database/", dependencies=[Depends(security)])
+async def replicate_database(data: dict, token: str = Depends(oauth2_scheme)):
+    # Here you would include logic to replicate the database changes
+    # For now, we're just mocking this functionality
+    return {"status": "Database replication data received", "data": data}
+
 if __name__ == "__main__":
-  print(colored("Generate Compliments with GPT-3\n", attrs=['bold']))
-
-  # This helper provides runtime API key prompting, etc.
-  check_environment(RuntimeEnvironments.REPLIT)
-
-  with Steamship.temporary_workspace() as client:
-    prompt = PromptPackage(client)
-
-    example_name = "Han Solo"
-    example_trait = "heroism in the face of adversity"
-    print(colored("First, let's run through an example...", 'green'))
-    print(colored("Name:", 'grey'), f"{example_name}")
-    print(colored("Trait:", 'grey'), f"{example_trait}")
-    print(colored("Generating...", 'grey'))
-    print(colored("Compliment:", 'grey'),
-          f"{prompt.generate(name=example_name, trait=example_trait)}\n")
-
-    print(colored("Now, try with your own inputs...", 'green'))
-
-    try_again = True
-    while try_again:
-      kwargs = {}
-      for parameter in inspect.signature(prompt.generate).parameters:
-        kwargs[parameter] = input(
-          colored(f'{parameter.capitalize()}: ', 'grey'))
-
-      print(colored("Generating...", 'grey'))
-
-      # This is the prompt-based generation call
-      print(colored("Compliment:", 'grey'), f'{prompt.generate(**kwargs)}\n')
-
-      try_again = input(colored("Generate another (y/n)? ",
-                                'green')).lower().strip() == 'y'
-      print()
-
-    print("Ready to share with your friends (and the world)?")
-    print("Run ", colored("$ ship deploy ", color='green',
-                          on_color='on_black'),
-          "to get a production-ready API endpoint and web-based demo app.")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

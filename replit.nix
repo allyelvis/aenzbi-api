@@ -1,5 +1,9 @@
 { pkgs }: {
   deps = [
+    pkgs.haskellPackages.debian-binary
+    pkgs.run
+    pkgs.haskellPackages.lingo
+    pkgs.libxcrypt
     pkgs.python38Full
   ];
   env = {
