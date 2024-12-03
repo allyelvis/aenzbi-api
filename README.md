@@ -69,4 +69,4 @@ To learn more about Steamship packages and plugins, please read our docs: https:
 
 Have any feedback on this template? Or on [Steamship](https://steamship.com) in general?
 
-We'd love to hear from you. Please reach out to: hello@steamship.com, or join us on our [Discord](https://discord.gg/5Vry5ANVwT).
+We'd love to hear from you. Please reach out to: hello@steamship.com, or join us on our [Discord](https://discord.gg/5Vry5ANVwT).# Enhancement log for aenzbi-api on Tue Dec  3 09:08:29 PM UTC 2024
