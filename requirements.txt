@@ -1,2 +1,4 @@
 steamship >= 2.3.13
 termcolor >= 2.2.0
+aiohttp>=3.13.3 # not directly required, pinned by Snyk to avoid a vulnerability
+urllib3>=2.6.3 # not directly required, pinned by Snyk to avoid a vulnerability
